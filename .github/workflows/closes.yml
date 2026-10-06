@@ -1,0 +1,97 @@
+# Extracts daily closes from IEX HIST and commits them to closes/.
+#
+# Every run asks IEX which dates have a TOPS file, compares that with the
+# CSVs already committed, and extracts the missing ones. So the same job
+# covers the daily update, weekends/holidays (nothing new to do), IEX
+# posting late (picked up next run), and the initial backfill (run it
+# manually with a large limit).
+#
+# Data provided for free by IEX. By accessing or using IEX Historical
+# Data, you agree to the IEX Historical Data Terms of Use.
+
+name: IEX closes
+
+on:
+  schedule:
+    # IEX posts each day's HIST files around 02:00 UTC the following night.
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "Max number of missing dates to extract (use ~260 for a full backfill)"
+        default: "5"
+
+permissions:
+  contents: write
+
+# Never run two at once - both would try to commit the same dates.
+concurrency:
+  group: iex-closes
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      dates: ${{ steps.plan.outputs.dates }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - id: plan
+        run: |
+          dates=$(python tools/iex_closes.py plan --limit "${{ inputs.limit || '5' }}")
+          echo "Dates to extract: $dates"
+          echo "dates=$dates" >> "$GITHUB_OUTPUT"
+
+  extract:
+    needs: plan
+    if: needs.plan.outputs.dates != '[]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        date: ${{ fromJSON(needs.plan.outputs.dates) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python tools/iex_closes.py extract "${{ matrix.date }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: closes-${{ matrix.date }}
+          path: closes/${{ matrix.date }}.csv
+          retention-days: 3
+
+  commit:
+    needs: [plan, extract]
+    # Commit whatever succeeded, even if some dates failed (they'll be
+    # retried on the next run because they're still missing).
+    if: always() && needs.plan.outputs.dates != '[]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: closes-*
+          path: closes
+          merge-multiple: true
+      - run: python tools/iex_closes.py index
+      - name: Commit new closes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add closes/
+          if git diff --cached --quiet; then
+            echo "No new closes to commit."
+          else
+            git commit -m "Add IEX closes: $(git diff --cached --name-only -- 'closes/*.csv' | xargs -n1 basename | sed 's/\.csv$//' | sort | paste -sd ' ' -)"
+            git push
+          fi
