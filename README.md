@@ -34,9 +34,12 @@ used.
 
 ## Limitations
 
-- **IEX-only prices.** `close` is the last trade *on IEX*, not the
-  official consolidated closing price. It's typically within a few cents
-  for liquid stocks, but can differ.
+- **IEX-only prices.** `close` is the last regular-session trade *on
+  IEX*, not the official consolidated closing price (which is set by the
+  listing exchange's 4:00pm closing auction). For liquid stocks it's
+  typically within about 0.1%: on 2026-10-05, AAPL was $333.11 here vs a
+  $332.89 official close, SPY $774.97 vs $774.83. Thinly traded stocks
+  can differ more.
 - **Gaps.** A symbol with no regular-session IEX trade that day is
   missing from that day's file. That's common for thinly traded stocks,
   and mutual funds never trade on IEX.
