@@ -14,7 +14,9 @@ name: IEX closes
 on:
   schedule:
     # IEX posts each day's HIST files around 02:00 UTC the following night.
-    - cron: "0 7 * * *"
+    # An off-peak minute, not :00 - GitHub queues top-of-the-hour schedules
+    # the longest (scheduled runs are best-effort and can start hours late).
+    - cron: "17 7 * * *"
   workflow_dispatch:
     inputs:
       limit:
@@ -31,12 +33,12 @@ concurrency:
 
 jobs:
   plan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       dates: ${{ steps.plan.outputs.dates }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - id: plan
@@ -48,20 +50,21 @@ jobs:
   extract:
     needs: plan
     if: needs.plan.outputs.dates != '[]'
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
+    runs-on: ubuntu-24.04
+    # Up to 3 attempts (see EXTRACT_ATTEMPTS); a big day is ~40 min each.
+    timeout-minutes: 240
     strategy:
       fail-fast: false
       max-parallel: 20
       matrix:
         date: ${{ fromJSON(needs.plan.outputs.dates) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: python tools/iex_closes.py extract "${{ matrix.date }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: closes-${{ matrix.date }}
           path: closes/${{ matrix.date }}.csv
@@ -72,13 +75,13 @@ jobs:
     # Commit whatever succeeded, even if some dates failed (they'll be
     # retried on the next run because they're still missing).
     if: always() && needs.plan.outputs.dates != '[]'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: closes-*
           path: closes

@@ -60,6 +60,16 @@ class NoFileForDate(Exception):
     """IEX has no TOPS file for that date (not a trading day, or not posted yet)."""
 
 
+class IncompleteDay(Exception):
+    """The stream ended before the regular session was over - a cut-off
+    download. Never written out: a partial day would publish wrong closes."""
+
+
+# Whole-day attempts before giving up on a date (the next workflow run
+# retries it anyway, since it's still missing).
+EXTRACT_ATTEMPTS = 3
+
+
 def _get_json(url: str, attempts: int = 4):
     for attempt in range(1, attempts + 1):
         try:
@@ -107,7 +117,8 @@ def extract_closes(date: dt.date, log_every_s: float = 60.0) -> dict[str, tuple[
 
     req = urllib.request.Request(tops_link(date), headers={"User-Agent": USER_AGENT})
     started = next_log = time.time()
-    packets = 0
+    packets = malformed = 0
+    reached_close = False
     with urllib.request.urlopen(req, timeout=120) as resp:
         stream = io.BufferedReader(gzip.GzipFile(fileobj=resp), buffer_size=1 << 20)
         read = stream.read
@@ -120,7 +131,7 @@ def extract_closes(date: dt.date, log_every_s: float = 60.0) -> dict[str, tuple[
             block_type, block_len = unpack_from("<II", head)
             body = read(block_len - 8)
             if len(body) < block_len - 8:
-                break  # truncated file
+                break  # truncated file - caught by the reached_close check below
             if block_type != ENHANCED_PACKET_BLOCK:
                 continue
             (cap_len,) = unpack_from("<I", body, 12)
@@ -133,33 +144,46 @@ def extract_closes(date: dt.date, log_every_s: float = 60.0) -> dict[str, tuple[
             *_, msg_count, _stream_offset, _first_seq, send_time = IEXTP_HEADER.unpack_from(pkt, p)
             packets += 1
             if send_time > stop_ns:
+                reached_close = True
                 break  # regular session (plus grace) is over; skip after-hours
 
             off = p + IEXTP_HEADER_LEN
-            for _ in range(msg_count):
-                (msg_len,) = unpack_from("<H", pkt, off)
-                mtype = pkt[off + 2]
-                if mtype == MSG_TRADE_REPORT:
-                    flags = pkt[off + 3]
-                    ts, sym, _size, price, trade_id = trade_from(pkt, off + 4)
-                    if open_ns <= ts < close_ns and not flags & (FLAG_EXTENDED_HOURS | FLAG_ODD_LOT):
-                        prev = last.get(sym)
-                        if prev is None or ts >= prev[0]:
-                            last[sym] = (ts, price, trade_id)
-                elif mtype == MSG_TRADE_BREAK:
-                    _ts, sym, _size, _price, trade_id = trade_from(pkt, off + 4)
-                    if sym in last and last[sym][2] == trade_id:
-                        # The day's last trade was broken. The previous one
-                        # isn't kept, so leave a gap rather than a wrong close.
-                        del last[sym]
-                off += 2 + msg_len
+            end = len(pkt)
+            try:
+                for _ in range(msg_count):
+                    (msg_len,) = unpack_from("<H", pkt, off)
+                    if off + 2 + msg_len > end:
+                        raise struct.error("message runs past end of packet")
+                    mtype = pkt[off + 2]
+                    if mtype == MSG_TRADE_REPORT:
+                        flags = pkt[off + 3]
+                        ts, sym, _size, price, trade_id = trade_from(pkt, off + 4)
+                        if open_ns <= ts < close_ns and not flags & (FLAG_EXTENDED_HOURS | FLAG_ODD_LOT):
+                            prev = last.get(sym)
+                            if prev is None or ts >= prev[0]:
+                                last[sym] = (ts, price, trade_id)
+                    elif mtype == MSG_TRADE_BREAK:
+                        _ts, sym, _size, _price, trade_id = trade_from(pkt, off + 4)
+                        if sym in last and last[sym][2] == trade_id:
+                            # The day's last trade was broken. The previous one
+                            # isn't kept, so leave a gap rather than a wrong close.
+                            del last[sym]
+                    off += 2 + msg_len
+            except struct.error:
+                # A malformed packet (bad length/count) - skip the rest of
+                # it rather than abort the whole day. Messages already read
+                # from it are kept; they were well-formed.
+                malformed += 1
 
             if time.time() >= next_log:
                 next_log = time.time() + log_every_s
                 print(f"  {date}: {packets:,} packets, {len(last):,} symbols, "
                       f"{time.time() - started:,.0f}s", file=sys.stderr)
 
-    print(f"  {date}: done - {len(last):,} symbols in {time.time() - started:,.0f}s", file=sys.stderr)
+    if not reached_close:
+        raise IncompleteDay(f"{date}: stream ended after {packets:,} packets, before the 4:00pm close")
+    print(f"  {date}: done - {len(last):,} symbols in {time.time() - started:,.0f}s"
+          f"{f', {malformed:,} malformed packet(s) skipped' if malformed else ''}", file=sys.stderr)
     return {sym.rstrip(b" ").decode(): (price, ts) for sym, (ts, price, _id) in last.items()}
 
 
@@ -221,11 +245,18 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "extract":
-        try:
-            closes = extract_closes(args.date)
-        except NoFileForDate as exc:
-            print(exc, file=sys.stderr)
-            return 2
+        for attempt in range(1, EXTRACT_ATTEMPTS + 1):
+            try:
+                closes = extract_closes(args.date)
+                break
+            except NoFileForDate as exc:
+                print(exc, file=sys.stderr)
+                return 2
+            except Exception as exc:  # noqa: BLE001 - network drop, cut-off stream, bad gzip
+                print(f"  {args.date}: attempt {attempt}/{EXTRACT_ATTEMPTS} failed: {exc!r}", file=sys.stderr)
+                if attempt == EXTRACT_ATTEMPTS:
+                    return 1
+                time.sleep(60 * attempt)
         if not closes:
             print(f"no regular-session trades found for {args.date}", file=sys.stderr)
             return 1
