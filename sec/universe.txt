@@ -1,0 +1,49 @@
+# Companies the SEC facts job covers (tools/sec_facts.py), one ticker per line.
+# Started from the most-traded tickers in EdgeStockService's disclosures, plus
+# a few large caps. EdgeStockService issue #33 later replaces this with the
+# full listing ranked by market cap. Dot tickers (BRK.B) are fine; GOOG and
+# GOOGL are one company, so only the first is kept.
+MSFT
+NVDA
+AAPL
+AMZN
+HD
+GOOGL
+GOOG
+ACN
+UNH
+FOUR
+ADBE
+BRK.B
+IBM
+META
+ABT
+AVGO
+INTC
+CLF
+LLY
+AMD
+BSX
+JNJ
+CVX
+DASH
+MU
+PLTR
+PYPL
+PG
+ADI
+AMAT
+HON
+INTU
+JPM
+ORCL
+PANW
+PEP
+DVN
+GS
+HOOD
+LPLA
+TSLA
+V
+WMT
+XOM

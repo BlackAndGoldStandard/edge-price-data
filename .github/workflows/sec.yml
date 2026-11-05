@@ -1,0 +1,65 @@
+# Pulls SEC company facts (10-Q / 10-K financials) for the companies in
+# sec/universe.txt and commits small per-company CSVs to sec/, for
+# EdgeStockService's metrics (its issues #27 and #54).
+#
+# Each run checks every company's latest filing and only re-downloads
+# companies that filed something new, so most days commit nothing.
+# Separate from closes.yml on purpose: it never touches closes/.
+#
+# Needs the SEC_CONTACT_EMAIL repository secret: the SEC requires a contact
+# email in the User-Agent of every request.
+
+name: SEC facts
+
+on:
+  schedule:
+    # Daily, off the hour (GitHub queues top-of-the-hour schedules longest)
+    # and well clear of the closes job at 07:17.
+    - cron: "43 9 * * *"
+  workflow_dispatch:
+    inputs:
+      only:
+        description: "Optional: just these tickers, space-separated (for testing)"
+        default: ""
+
+permissions:
+  contents: write
+
+# Never run two at once - both would try to commit sec/.
+concurrency:
+  group: sec-facts
+  cancel-in-progress: false
+
+jobs:
+  facts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Fetch SEC facts
+        env:
+          SEC_CONTACT_EMAIL: ${{ secrets.SEC_CONTACT_EMAIL }}
+          ONLY: ${{ inputs.only }}
+        run: python tools/sec_facts.py run ${ONLY:+--only $ONLY}
+      # Commit whatever succeeded, even if some companies failed (the step
+      # above still marks the run red so failures get noticed).
+      - name: Commit updated facts
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sec/
+          if git diff --cached --quiet; then
+            echo "No SEC changes to commit."
+            exit 0
+          fi
+          git commit -m "Update SEC facts: $(git diff --cached --name-only -- 'sec/facts/*.csv' | wc -l | tr -d ' ') companies"
+          # The closes job can push in between; rebase onto it and retry.
+          for attempt in 1 2 3; do
+            git pull --rebase && git push && exit 0
+            sleep 10
+          done
+          exit 1
