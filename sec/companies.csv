@@ -14,7 +14,7 @@ cik,ticker,name,sic,sic_description,last_accn,last_filed
 0000093410,CVX,CHEVRON CORP,2911,Petroleum Refining,0000093410-26-000200,2026-11-05
 0001792789,DASH,"DoorDash, Inc.",7389,"Services-Business Services, NEC",0001792789-26-000070,2026-10-30
 0001090012,DVN,DEVON ENERGY CORP/DE,1311,Crude Petroleum & Natural Gas,0001193125-26-334340,2026-08-05
-0001794669,FOUR,"Shift4 Payments, Inc.",7389,"Services-Business Services, NEC",0001794669-26-000045,2026-08-06
+0001794669,FOUR,"Shift4 Payments, Inc.",7389,"Services-Business Services, NEC",0001794669-26-000051,2026-11-05
 0001652044,GOOGL,Alphabet Inc.,7370,"Services-Computer Programming, Data Processing, Etc.",0001652044-26-000084,2026-10-29
 0000886982,GS,GOLDMAN SACHS GROUP INC,6211,"Security Brokers, Dealers & Flotation Companies",0000886982-26-000532,2026-11-02
 0000354950,HD,"HOME DEPOT, INC.",5211,Retail-Lumber & Other Building Materials Dealers,0001628280-26-058715,2026-08-25
@@ -39,6 +39,6 @@ cik,ticker,name,sic,sic_description,last_accn,last_filed
 0001633917,PYPL,"PayPal Holdings, Inc.",7389,"Services-Business Services, NEC",0001633917-26-000088,2026-10-27
 0001318605,TSLA,"Tesla, Inc.",3711,Motor Vehicles & Passenger Car Bodies,0001628280-26-066775,2026-10-22
 0000731766,UNH,UNITEDHEALTH GROUP INC,6324,Hospital & Medical Service Plans,0000731766-26-000266,2026-11-03
-0001403161,V,VISA INC.,7389,"Services-Business Services, NEC",0001403161-26-000104,2026-07-29
+0001403161,V,VISA INC.,7389,"Services-Business Services, NEC",0001403161-26-000134,2026-11-05
 0000104169,WMT,Walmart Inc.,5331,Retail-Variety Stores,0000104169-26-000154,2026-08-28
 0002115436,XOM,ExxonMobil Holdings Corp,2911,Petroleum Refining,0002115436-26-000020,2026-11-02
